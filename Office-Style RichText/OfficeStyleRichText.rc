@@ -1,11 +1,11 @@
-// Microsoft Visual C++ generated resource script.
+﻿// Microsoft Visual C++ generated resource script.
 //
 #pragma code_page(65001)
 
 #include <windows.h>
 #include "resource.h"
 /////////////////////////////////////////////////////////////////////////////
-// 日本�? (日本) resources
+/////////////////////////////////////////////////////////////////////////////
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_JPN)
 LANGUAGE LANG_JAPANESE, SUBLANG_DEFAULT
@@ -26,22 +26,22 @@ IDI_RICHTEXT_EYEDROPPER ICON                    "eyedropper.ico"
 //
 
 IDD_RICHTEXT_TOOLBAR DIALOGEX 0, 0, 480, 200
-STYLE DS_SETFONT | DS_CONTROL | WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN
+STYLE DS_SETFONT | DS_CONTROL | WS_POPUP | WS_CLIPCHILDREN
 FONT 9, "Segoe UI", 0, 0, 0x1
 BEGIN
-    PUSHBUTTON      "B",IDC_RICH_BOLD,5,2,24,17
-    PUSHBUTTON      "I",IDC_RICH_ITALIC,32,2,24,17
-    LTEXT           "フォン�?:",IDC_RICH_FONT_LABEL,60,2,38,17,SS_CENTERIMAGE
+    CONTROL         "B",IDC_RICH_BOLD,"Button",BS_OWNERDRAW | WS_TABSTOP,5,2,24,17
+    CONTROL         "I",IDC_RICH_ITALIC,"Button",BS_OWNERDRAW | WS_TABSTOP,32,2,24,17
+    LTEXT           "フォント:",IDC_RICH_FONT_LABEL,60,2,38,17,SS_CENTERIMAGE
     COMBOBOX        IDC_RICH_FONT,87,6,126,150,CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
     LTEXT           "サイズ:",IDC_RICH_SIZE_LABEL,226,2,29,17,SS_CENTERIMAGE
     COMBOBOX        IDC_RICH_SIZE,249,6,40,100,CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
-    PUSHBUTTON      "�?字色",IDC_RICH_TEXT_COLOR,300,2,48,17
-    PUSHBUTTON      "",IDC_RICH_TEXT_PICKER,350,2,23,17,BS_ICON
-    PUSHBUTTON      "読み込み",IDC_RICH_LOAD,5,20,52,15
-    PUSHBUTTON      "反映",IDC_RICH_APPLY,60,20,52,15
-    PUSHBUTTON      "背景色",IDC_RICH_BACKGROUND,116,20,54,15
-    PUSHBUTTON      "",IDC_RICH_BACKGROUND_PICKER,174,20,23,15,BS_ICON
-    LTEXT           "�?字を入力して選択し、�?飾します�?",IDC_RICH_STATUS,206,20,266,15,SS_CENTERIMAGE
+    CONTROL         "文字色",IDC_RICH_TEXT_COLOR,"Button",BS_OWNERDRAW | WS_TABSTOP,300,2,48,17
+    CONTROL         "",IDC_RICH_TEXT_PICKER,"Button",BS_OWNERDRAW | WS_TABSTOP,350,2,23,17
+    CONTROL         "読み込み",IDC_RICH_LOAD,"Button",BS_OWNERDRAW | WS_TABSTOP,5,20,52,15
+    CONTROL         "反映",IDC_RICH_APPLY,"Button",BS_OWNERDRAW | WS_TABSTOP,60,20,52,15
+    CONTROL         "背景色",IDC_RICH_BACKGROUND,"Button",BS_OWNERDRAW | WS_TABSTOP,116,20,54,15
+    CONTROL         "",IDC_RICH_BACKGROUND_PICKER,"Button",BS_OWNERDRAW | WS_TABSTOP,174,20,23,15
+    LTEXT           "文字を入力して選択し、装飾します。",IDC_RICH_STATUS,206,20,266,15,SS_CENTERIMAGE
     CONTROL         "",IDC_RICH_EDITOR,"RICHEDIT50W",WS_BORDER | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP | 0xc4,5,38,470,157
 END
 
@@ -96,7 +96,9 @@ BEGIN
     0
 END
 
-#endif    // 日本�? (日本) resources
+#endif // Japanese resources
+
+/////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 
 
