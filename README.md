@@ -16,17 +16,18 @@ AviUtl2向けの汎用プラグイン（`.aux2`）です。テキストオブジ
 
 
 ## インストール
-###Pluginフォルダに直接配置する場合
+### Pluginフォルダに直接配置する場合
 1.GithubのReleasesから最新版をダウンロードします。
 2. `Office-Style RichText.aux2`を、Pluginフォルダへコピーします。
 
-###D&Dでインストールする場合
+### D&Dでインストールする場合
 1.GithubのReleasesから最新版をダウンロードします。
 2.AviUtl2のプレビュー画面に`Office-Style RichText.aux2`をドラッグアンドドロップします。
-[!WARNING]
-環境によってD&DによるインストールでAviUtl2が応答しなくなることがあります。その場合は、上記のPluginフォルダに直接配置する方法をお試しください。
 
-###AviUtl2カタログでインストールする場合
+>[!WARNING]
+>環境によってD&DによるインストールでAviUtl2が応答しなくなることがあります。その場合は、上記のPluginフォルダに直接配置する方法をお試しください。
+
+### AviUtl2カタログでインストールする場合
 現在申請中です。カタログに掲載され次第追記いたします。
 
 ## 使い方
@@ -40,15 +41,15 @@ AviUtl2起動後、左上の`表示`から`Office-Style RichText`を選択する
 フォントとサイズは、入力欄で選択している文字へすぐ反映されます。スポイトはボタンを押した後、色を取りたい画面上の位置をクリックします。Escキーでキャンセルできます。
 入力欄はCtrl+マウスホイールで拡大縮小できます。
 
-#再配布について
+## 再配布について
 再配布は禁止させていただきます。ただし以下の条件に当てはまる場合はその限りではございません。
 ・プラグインがダウンロードできない状況になっていて、製作者(蛸之酢物)と1年以上連絡が取れない場合
 
-#バグ報告・リクエストについて
+## バグ報告・リクエストについて
 バグの報告やリクエストなどは以下の連絡先もしくはGitHubのIssuesまたはPull requestsにお願いいたします。
 
 #連絡先
 以下の連絡先にご連絡ください。X(旧Twitter)の方が気づきやすいのでできるだけこちらにお願いいたします。
-・X(旧Twitter)：@takonosunomono_
-・e-mail：takonosunomono0101@gmail.com
-・配布サイト：https://takonosunomono0101.wixsite.com/uta
+- X(旧Twitter)：@takonosunomono_
+- e-mail：takonosunomono0101@gmail.com
+- 配布サイト：https://takonosunomono0101.wixsite.com/uta
