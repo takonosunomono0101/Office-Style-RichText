@@ -138,8 +138,6 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="config2.h" />
-    <ClInclude Include="logger2.h" />
     <ClInclude Include="plugin2.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
