@@ -1,4 +1,4 @@
-# Office-Style RichText  Ver.1.0.0
+# Office-Style RichText
 ![プラグインの画面](image/image.png)
 
 AviUtl2向けの汎用プラグイン（`.aux2`）です。テキストオブジェクトの文字をプラグインパネルから編集し、太字・斜体・フォント・サイズ・色などの装飾を反映できます。
