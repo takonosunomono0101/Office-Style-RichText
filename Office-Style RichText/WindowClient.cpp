@@ -2,6 +2,9 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <richedit.h>
+#include <richole.h>
+#include <gdiplus.h>
+#include <tom.h>
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -14,6 +17,7 @@
 
 #pragma comment(lib, "Comdlg32.lib")
 #pragma comment(lib, "Comctl32.lib")
+#pragma comment(lib, "Gdiplus.lib")
 
 namespace {
 
@@ -31,18 +35,21 @@ namespace {
     constexpr int kTextEyedropperButton = 1010;
     constexpr int kBackgroundButton = 1011;
     constexpr int kBackgroundEyedropperButton = 1012;
+    constexpr int kOutlineColorButton = 1014;
+    constexpr int kOutlineEyedropperButton = 1015;
     constexpr UINT kPopulateFontsMessage = WM_APP + 42;
 constexpr COLORREF kButtonColor = RGB(55, 55, 55);
 constexpr COLORREF kButtonPressedColor = RGB(78, 78, 78);
 constexpr COLORREF kButtonTextColor = RGB(240, 240, 240);
 constexpr COLORREF kControlBorderColor = RGB(170, 170, 170);
 
-    enum class ColorPickTarget { Text, Background };
+    enum class ColorPickTarget { Text, Outline, Background };
 
     struct TextStyle {
         std::wstring font = L"Yu Gothic UI";
         int size = 32;
         COLORREF color = RGB(255, 255, 255);
+        COLORREF outlineColor = RGB(0, 0, 0);
         int decoration = 0;
         bool bold = false;
         bool italic = false;
@@ -71,16 +78,24 @@ HBRUSH g_borderBrush = nullptr;
     int g_statusHeight = 20;
     TextStyle g_baseStyle;
     COLORREF g_customColors[16] = {};
+    COLORREF g_outlineColor = RGB(0, 0, 0);
+    std::vector<COLORREF> g_outlineColors;
+    std::wstring g_editorTextSnapshot;
     COLORREF g_editorBackground = RGB(0, 0, 0);
     bool g_pickingColor = false;
     bool g_fontsLoaded = false;
     ColorPickTarget g_pickTarget = ColorPickTarget::Text;
+    ULONG_PTR g_gdiplusToken = 0;
+    bool g_drawingOutlinePreview = false;
 
     void SetStatus(const wchar_t* message);
+    std::wstring ReadEditorText();
     std::wstring Utf8ToWide(const char* text);
     std::string WideToUtf8(const wchar_t* text, int length);
     bool ParseMarkup(const std::wstring& raw, std::wstring& visible,
         std::vector<TextStyle>& styles);
+    void SyncOutlineColors();
+    void DrawOutlinePreview(HWND editor);
     void SetEditorDocument(const std::wstring& visible,
         const std::vector<TextStyle>& styles);
     std::string SerializeEditor();
@@ -89,6 +104,184 @@ HBRUSH g_borderBrush = nullptr;
         if (g_statusLabel && IsWindow(g_statusLabel)) {
             SetWindowTextW(g_statusLabel, message);
         }
+    }
+
+    void DrawOutlinePreview(HWND editor) {
+        if (editor != g_editor || g_outlineColors.empty() ||
+            g_drawingOutlinePreview) {
+            return;
+        }
+
+        const std::wstring text = ReadEditorText();
+        if (text.empty()) {
+            return;
+        }
+
+        RECT client = {};
+        GetClientRect(editor, &client);
+        POINT corners[] = {
+            { client.left + 1, client.top + 1 },
+            { client.right - 2, client.top + 1 },
+            { client.left + 1, client.bottom - 2 },
+            { client.right - 2, client.bottom - 2 }
+        };
+        LONG first = static_cast<LONG>(text.size());
+        LONG last = 0;
+        for (const POINT& point : corners) {
+            const LRESULT hit = SendMessageW(editor, EM_CHARFROMPOS, 0,
+                reinterpret_cast<LPARAM>(&point));
+            const LONG index = static_cast<LONG>(LOWORD(hit));
+            first = (std::min)(first, index);
+            last = (std::max)(last, index);
+        }
+        first = (std::max)(0L, first - 2);
+        last = (std::min)(static_cast<LONG>(text.size()), last + 3);
+        if (last <= first || last - first > 4096) {
+            return;
+        }
+
+        CHARRANGE originalSelection = {};
+        SendMessageW(editor, EM_EXGETSEL, 0,
+            reinterpret_cast<LPARAM>(&originalSelection));
+        POINT originalScroll = {};
+        SendMessageW(editor, EM_GETSCROLLPOS, 0,
+            reinterpret_cast<LPARAM>(&originalScroll));
+        g_drawingOutlinePreview = true;
+
+        HDC dc = GetDC(editor);
+        if (!dc) {
+            g_drawingOutlinePreview = false;
+            return;
+        }
+        Gdiplus::Graphics graphics(dc);
+        graphics.SetPageUnit(Gdiplus::UnitPixel);
+        graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
+        LONG zoomNumerator = 0;
+        LONG zoomDenominator = 0;
+        SendMessageW(editor, EM_GETZOOM,
+            reinterpret_cast<WPARAM>(&zoomNumerator),
+            reinterpret_cast<LPARAM>(&zoomDenominator));
+        Gdiplus::REAL zoomScale = 1.0f;
+        if (zoomNumerator > 0 && zoomDenominator > 0) {
+            zoomScale = static_cast<Gdiplus::REAL>(zoomNumerator) /
+                static_cast<Gdiplus::REAL>(zoomDenominator);
+        }
+        const Gdiplus::REAL dpiScale =
+            static_cast<Gdiplus::REAL>(GetDeviceCaps(dc, LOGPIXELSY)) / 72.0f * zoomScale;
+
+        IRichEditOle* richEditOle = nullptr;
+        ITextDocument* textDocument = nullptr;
+        if (SendMessageW(editor, EM_GETOLEINTERFACE, 0,
+            reinterpret_cast<LPARAM>(&richEditOle)) && richEditOle) {
+            richEditOle->QueryInterface(__uuidof(ITextDocument),
+                reinterpret_cast<void**>(&textDocument));
+        }
+
+        for (LONG index = first; index < last; ++index) {
+            if (index >= static_cast<LONG>(g_outlineColors.size()) ||
+                text[static_cast<size_t>(index)] == L'\r' ||
+                text[static_cast<size_t>(index)] == L'\n') {
+                continue;
+            }
+
+            size_t charLength = 1;
+            if (text[static_cast<size_t>(index)] >= 0xD800 &&
+                text[static_cast<size_t>(index)] <= 0xDBFF && index + 1 < last &&
+                text[static_cast<size_t>(index + 1)] >= 0xDC00 &&
+                text[static_cast<size_t>(index + 1)] <= 0xDFFF) {
+                charLength = 2;
+            }
+
+            CHARRANGE range{ index, index + static_cast<LONG>(charLength) };
+            SendMessageW(editor, EM_EXSETSEL, 0,
+                reinterpret_cast<LPARAM>(&range));
+            CHARFORMAT2W format = {};
+            format.cbSize = sizeof(format);
+            SendMessageW(editor, EM_GETCHARFORMAT, SCF_SELECTION,
+                reinterpret_cast<LPARAM>(&format));
+            SendMessageW(editor, EM_SETSCROLLPOS, 0,
+                reinterpret_cast<LPARAM>(&originalScroll));
+
+            LONG baselineX = 0;
+            LONG baselineY = 0;
+            bool hasBaseline = false;
+            ITextRange* textRange = nullptr;
+            if (textDocument && SUCCEEDED(textDocument->Range(
+                index, index + static_cast<LONG>(charLength), &textRange)) && textRange) {
+                hasBaseline = textRange->GetPoint(
+                    tomStart | tomClientCoord | tomAllowOffClient |
+                        TA_BASELINE | TA_LEFT,
+                    &baselineX, &baselineY) == S_OK;
+                textRange->Release();
+            }
+            if (!hasBaseline) {
+                continue;
+            }
+            const int x = baselineX;
+            const int y = baselineY;
+
+            wchar_t face[LF_FACESIZE] = {};
+            if ((format.dwMask & CFM_FACE) && format.szFaceName[0]) {
+                wcscpy_s(face, format.szFaceName);
+            }
+            else {
+                wcscpy_s(face, L"Yu Gothic UI");
+            }
+            Gdiplus::FontFamily family(face);
+            const INT fontStyle = ((format.dwEffects & CFE_BOLD) ? Gdiplus::FontStyleBold : 0) |
+                ((format.dwEffects & CFE_ITALIC) ? Gdiplus::FontStyleItalic : 0);
+            const LONG height = (format.dwMask & CFM_SIZE)
+                ? format.yHeight : g_baseStyle.size * 20;
+            const Gdiplus::REAL fontSize =
+                static_cast<Gdiplus::REAL>(height) / 20.0f * dpiScale;
+            if (fontSize <= 0.0f) {
+                continue;
+            }
+
+            Gdiplus::GraphicsPath path;
+            Gdiplus::StringFormat stringFormat(Gdiplus::StringFormat::GenericTypographic());
+            stringFormat.SetFormatFlags(stringFormat.GetFormatFlags() |
+                Gdiplus::StringFormatFlagsNoWrap | Gdiplus::StringFormatFlagsNoClip);
+            const std::wstring glyph = text.substr(static_cast<size_t>(index), charLength);
+            const UINT emHeight = family.GetEmHeight(fontStyle);
+            const UINT ascent = family.GetCellAscent(fontStyle);
+            const Gdiplus::REAL baselineOffset = emHeight
+                ? fontSize * static_cast<Gdiplus::REAL>(ascent) /
+                    static_cast<Gdiplus::REAL>(emHeight)
+                : fontSize;
+            if (!hasBaseline) {
+                baselineY += static_cast<LONG>(baselineOffset);
+            }
+            const Gdiplus::RectF layout(static_cast<Gdiplus::REAL>(x),
+                static_cast<Gdiplus::REAL>(hasBaseline ? y : baselineY) - baselineOffset,
+                fontSize * 2.5f, fontSize * 2.5f);
+            if (path.AddString(glyph.c_str(), static_cast<INT>(glyph.size()),
+                &family, fontStyle, fontSize, layout, &stringFormat) != Gdiplus::Ok) {
+                continue;
+            }
+
+            Gdiplus::Pen pen(Gdiplus::Color(255,
+                GetRValue(g_outlineColors[static_cast<size_t>(index)]),
+                GetGValue(g_outlineColors[static_cast<size_t>(index)]),
+                GetBValue(g_outlineColors[static_cast<size_t>(index)])),
+                dpiScale * 3.6f > 1.0f ? dpiScale * 3.6f : 1.0f);
+            pen.SetLineJoin(Gdiplus::LineJoinRound);
+            graphics.DrawPath(&pen, &path);
+        }
+
+        SendMessageW(editor, EM_EXSETSEL, 0,
+            reinterpret_cast<LPARAM>(&originalSelection));
+        SendMessageW(editor, EM_SETSCROLLPOS, 0,
+            reinterpret_cast<LPARAM>(&originalScroll));
+        if (textDocument) {
+            textDocument->Release();
+        }
+        if (richEditOle) {
+            richEditOle->Release();
+        }
+        ReleaseDC(editor, dc);
+        g_drawingOutlinePreview = false;
     }
 
     std::wstring Utf8ToWide(const char* text) {
@@ -199,6 +392,7 @@ HBRUSH g_borderBrush = nullptr;
         std::string font;
         std::string size;
         std::string color;
+        std::string outlineColor;
         std::string decoration;
         bool found = false;
     };
@@ -235,6 +429,7 @@ HBRUSH g_borderBrush = nullptr;
                 ReadItem(edit, object, L"フォント", request->font);
                 ReadItem(edit, object, L"サイズ", request->size);
                 ReadItem(edit, object, L"文字色", request->color);
+                ReadItem(edit, object, L"影・縁色", request->outlineColor);
                 ReadItem(edit, object, L"文字装飾", request->decoration);
                 request->found = true;
             });
@@ -245,6 +440,7 @@ HBRUSH g_borderBrush = nullptr;
         }
 
         g_baseStyle = {};
+        g_outlineColor = RGB(0, 0, 0);
         if (!request.font.empty()) {
             g_baseStyle.font = Utf8ToWide(request.font.c_str());
         }
@@ -252,6 +448,10 @@ HBRUSH g_borderBrush = nullptr;
         if (!request.color.empty()) {
             ParseHexColor(Utf8ToWide(request.color.c_str()), g_baseStyle.color);
         }
+        if (!request.outlineColor.empty()) {
+            ParseHexColor(Utf8ToWide(request.outlineColor.c_str()), g_outlineColor);
+        }
+        g_baseStyle.outlineColor = g_outlineColor;
         g_baseStyle.decoration = ParseDecoration(
             request.decoration.c_str(), 0);
 
@@ -303,7 +503,8 @@ HBRUSH g_borderBrush = nullptr;
 
     bool SameStyle(const TextStyle& left, const TextStyle& right) {
         return left.font == right.font && left.size == right.size &&
-            left.color == right.color && left.decoration == right.decoration &&
+            left.color == right.color && left.outlineColor == right.outlineColor &&
+            left.decoration == right.decoration &&
             left.bold == right.bold && left.italic == right.italic;
     }
 
@@ -341,6 +542,13 @@ HBRUSH g_borderBrush = nullptr;
         wcsncpy_s(base.szFaceName, g_baseStyle.font.c_str(), _TRUNCATE);
         SendMessageW(g_editor, EM_SETCHARFORMAT, SCF_ALL,
             reinterpret_cast<LPARAM>(&base));
+        g_outlineColors.clear();
+        g_outlineColors.reserve(styles.size());
+        for (const TextStyle& style : styles) {
+            g_outlineColors.push_back(style.outlineColor);
+        }
+        g_outlineColors.resize(visible.size(), g_baseStyle.outlineColor);
+        g_editorTextSnapshot = visible;
         SetWindowTextW(g_editor, visible.c_str());
 
         size_t start = 0;
@@ -372,6 +580,7 @@ HBRUSH g_borderBrush = nullptr;
                     if (!token.empty() && token[0] == L'#') {
                         if (token.size() == 1) {
                             current.color = g_baseStyle.color;
+                            current.outlineColor = g_baseStyle.outlineColor;
                             recognized = true;
                         }
                         else {
@@ -379,6 +588,16 @@ HBRUSH g_borderBrush = nullptr;
                             const std::wstring color = token.substr(1,
                                 comma == std::wstring::npos ? comma : comma - 1);
                             recognized = ParseHexColor(color, current.color);
+                            if (recognized && comma != std::wstring::npos) {
+                                const std::wstring outlineColor = token.substr(comma + 1);
+                                if (outlineColor.empty()) {
+                                    current.outlineColor = g_baseStyle.outlineColor;
+                                }
+                                else {
+                                    recognized = ParseHexColor(outlineColor,
+                                        current.outlineColor);
+                                }
+                            }
                         }
                     }
                     else if (token == L"@") {
@@ -483,6 +702,55 @@ HBRUSH g_borderBrush = nullptr;
         return std::wstring(buffer.data(), static_cast<size_t>(length));
     }
 
+    void SyncOutlineColors() {
+        if (!g_editor) {
+            return;
+        }
+
+        const std::wstring currentText = ReadEditorText();
+        if (g_outlineColors.size() != g_editorTextSnapshot.size()) {
+            g_outlineColors.resize(g_editorTextSnapshot.size(),
+                g_baseStyle.outlineColor);
+        }
+
+        size_t prefix = 0;
+        const size_t commonLength = (std::min)(g_editorTextSnapshot.size(),
+            currentText.size());
+        while (prefix < commonLength &&
+            g_editorTextSnapshot[prefix] == currentText[prefix]) {
+            ++prefix;
+        }
+
+        size_t suffix = 0;
+        while (suffix < g_editorTextSnapshot.size() - prefix &&
+            suffix < currentText.size() - prefix &&
+            g_editorTextSnapshot[g_editorTextSnapshot.size() - suffix - 1] ==
+            currentText[currentText.size() - suffix - 1]) {
+            ++suffix;
+        }
+
+        const size_t oldEnd = g_editorTextSnapshot.size() - suffix;
+        const size_t newEnd = currentText.size() - suffix;
+        const size_t removed = oldEnd - prefix;
+        const size_t inserted = newEnd - prefix;
+        COLORREF inheritedColor = g_baseStyle.outlineColor;
+        if (removed > 0 && prefix < g_outlineColors.size()) {
+            inheritedColor = g_outlineColors[prefix];
+        }
+        else if (prefix > 0 && prefix - 1 < g_outlineColors.size()) {
+            inheritedColor = g_outlineColors[prefix - 1];
+        }
+        else if (!g_outlineColors.empty()) {
+            inheritedColor = g_outlineColors.front();
+        }
+
+        g_outlineColors.erase(g_outlineColors.begin() + prefix,
+            g_outlineColors.begin() + oldEnd);
+        g_outlineColors.insert(g_outlineColors.begin() + prefix, inserted,
+            inheritedColor);
+        g_editorTextSnapshot = currentText;
+    }
+
     TextStyle GetFormatAt(LONG position) {
         CHARRANGE range{ position, position + 1 };
         SendMessageW(g_editor, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&range));
@@ -507,6 +775,9 @@ HBRUSH g_borderBrush = nullptr;
         }
         if (format.dwMask & CFM_ITALIC) {
             style.italic = (format.dwEffects & CFE_ITALIC) != 0;
+        }
+        if (position >= 0 && static_cast<size_t>(position) < g_outlineColors.size()) {
+            style.outlineColor = g_outlineColors[static_cast<size_t>(position)];
         }
         return style;
     }
@@ -556,12 +827,15 @@ HBRUSH g_borderBrush = nullptr;
                 }
             }
 
-            if (style.color != previous.color) {
-                if (style.color == g_baseStyle.color) {
+            if (style.color != previous.color ||
+                style.outlineColor != previous.outlineColor) {
+                if (style.color == g_baseStyle.color &&
+                    style.outlineColor == g_baseStyle.outlineColor) {
                     output += "<#>";
                 }
                 else {
-                    const std::wstring colorTag = L"<#" + ColorToHex(style.color) + L">";
+                    const std::wstring colorTag = L"<#" + ColorToHex(style.color) +
+                        L"," + ColorToHex(style.outlineColor) + L">";
                     output += WideToUtf8(colorTag.c_str(),
                         static_cast<int>(colorTag.size()));
                 }
@@ -678,6 +952,34 @@ HBRUSH g_borderBrush = nullptr;
         return ChooseColorW(&dialog) ? dialog.rgbResult : initial;
     }
 
+    bool ApplyOutlineColorToSelection(COLORREF color) {
+        CHARRANGE range = {};
+        SendMessageW(g_editor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&range));
+        if (range.cpMin == range.cpMax) {
+            SetStatus(L"入力欄で輪郭色を変更する文字を選択してください。");
+            return false;
+        }
+
+        SyncOutlineColors();
+        const size_t start = range.cpMin < 0 ? 0 : static_cast<size_t>(range.cpMin);
+        const size_t end = range.cpMax < 0 ? 0 : static_cast<size_t>(range.cpMax);
+        const size_t boundedStart = (std::min)(start, g_outlineColors.size());
+        const size_t boundedEnd = (std::min)(end, g_outlineColors.size());
+        if (boundedEnd <= boundedStart) {
+            SetStatus(L"選択範囲の輪郭色を変更できませんでした。");
+            return false;
+        }
+
+        for (size_t i = boundedStart; i < boundedEnd; ++i) {
+            g_outlineColors[i] = color;
+        }
+        g_outlineColor = color;
+        InvalidateRect(g_editor, nullptr, FALSE);
+        SetFocus(g_editor);
+        SetStatus(L"選択範囲の輪郭色を変更しました。「反映」で本体に適用します。");
+        return true;
+    }
+
     void ChooseAndApplyColor(HWND owner) {
         CHOOSECOLORW dialog = {};
         dialog.lStructSize = sizeof(dialog);
@@ -688,6 +990,36 @@ HBRUSH g_borderBrush = nullptr;
         if (ChooseColorW(&dialog)) {
             ApplyTextColor(dialog.rgbResult);
         }
+    }
+
+    void ChooseAndApplyOutlineColor(HWND owner) {
+        CHARRANGE range = {};
+        SendMessageW(g_editor, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&range));
+        if (range.cpMin == range.cpMax) {
+            SetStatus(L"入力欄で輪郭色を変更する文字を選択してください。");
+            return;
+        }
+
+        SyncOutlineColors();
+        size_t start = range.cpMin < 0 ? 0 : static_cast<size_t>(range.cpMin);
+        size_t end = range.cpMax < 0 ? 0 : static_cast<size_t>(range.cpMax);
+        start = (std::min)(start, g_outlineColors.size());
+        end = (std::min)(end, g_outlineColors.size());
+        if (end <= start) {
+            SetStatus(L"選択範囲の輪郭色を変更できませんでした。");
+            return;
+        }
+
+        CHOOSECOLORW dialog = {};
+        dialog.lStructSize = sizeof(dialog);
+        dialog.hwndOwner = owner;
+        dialog.rgbResult = g_outlineColors[start];
+        dialog.lpCustColors = g_customColors;
+        dialog.Flags = CC_FULLOPEN | CC_RGBINIT;
+        if (!ChooseColorW(&dialog)) {
+            return;
+        }
+        ApplyOutlineColorToSelection(dialog.rgbResult);
     }
 
     void ChooseEditorBackground(HWND owner) {
@@ -717,9 +1049,14 @@ HBRUSH g_borderBrush = nullptr;
         SetFocus(g_toolbarWindow);
         SetCapture(g_toolbarWindow);
         SetCursor(LoadCursorW(nullptr, IDC_CROSS));
-        SetStatus(target == ColorPickTarget::Text
-            ? L"スポイト: 画面上の色をクリック。Escでキャンセル。"
-            : L"背景スポイト: 画面上の色をクリック。Escでキャンセル。");
+        const wchar_t* message = L"スポイト: 画面上の色をクリック。Escでキャンセル。";
+        if (target == ColorPickTarget::Outline) {
+            message = L"輪郭色スポイト: 画面上の色をクリック。Escでキャンセル。";
+        }
+        else if (target == ColorPickTarget::Background) {
+            message = L"背景スポイト: 画面上の色をクリック。Escでキャンセル。";
+        }
+        SetStatus(message);
     }
 
     BOOL CALLBACK EnumFontCallback(const LOGFONTW* font,
@@ -741,6 +1078,11 @@ HBRUSH g_borderBrush = nullptr;
         WPARAM wParam, LPARAM lParam) {
         switch (message) {
         case WM_COMMAND:
+            if (LOWORD(wParam) == IDC_RICH_EDITOR &&
+                HIWORD(wParam) == EN_CHANGE) {
+                SyncOutlineColors();
+                return 0;
+            }
             if (LOWORD(wParam) == kFontCombo &&
                 (HIWORD(wParam) == CBN_SELCHANGE || HIWORD(wParam) == CBN_KILLFOCUS)) {
                 ApplyFont(false);
@@ -768,6 +1110,12 @@ HBRUSH g_borderBrush = nullptr;
                 case kBackgroundButton:
                     ChooseEditorBackground(window);
                     return 0;
+                case kOutlineColorButton:
+                    ChooseAndApplyOutlineColor(window);
+                    return 0;
+                case kOutlineEyedropperButton:
+                    BeginScreenColorPick(ColorPickTarget::Outline);
+                    return 0;
                 case kBackgroundEyedropperButton:
                     BeginScreenColorPick(ColorPickTarget::Background);
                     return 0;
@@ -785,9 +1133,14 @@ HBRUSH g_borderBrush = nullptr;
                 const COLORREF sample = SampleScreenPixel();
                 if (sample != CLR_INVALID) {
                     wchar_t status[96] = {};
-                    swprintf_s(status, g_pickTarget == ColorPickTarget::Text
-                        ? L"文字色: #%02X%02X%02Xをクリックして適用"
-                        : L"背景色: #%02X%02X%02Xをクリックして適用",
+                    const wchar_t* format = L"文字色: #%02X%02X%02Xをクリックして適用";
+                    if (g_pickTarget == ColorPickTarget::Outline) {
+                        format = L"輪郭色: #%02X%02X%02Xをクリックして適用";
+                    }
+                    else if (g_pickTarget == ColorPickTarget::Background) {
+                        format = L"背景色: #%02X%02X%02Xをクリックして適用";
+                    }
+                    swprintf_s(status, format,
                         GetRValue(sample), GetGValue(sample), GetBValue(sample));
                     SetStatus(status);
                 }
@@ -805,6 +1158,9 @@ HBRUSH g_borderBrush = nullptr;
                 }
                 else if (target == ColorPickTarget::Text) {
                     ApplyTextColor(color);
+                }
+                else if (target == ColorPickTarget::Outline) {
+                    ApplyOutlineColorToSelection(color);
                 }
                 else {
                     g_editorBackground = color;
@@ -903,7 +1259,8 @@ HBRUSH g_borderBrush = nullptr;
         FrameRect(item->hDC, &frame, g_borderBrush);
 
         if (item->CtlID == kTextEyedropperButton ||
-            item->CtlID == kBackgroundEyedropperButton) {
+            item->CtlID == kBackgroundEyedropperButton ||
+            item->CtlID == kOutlineEyedropperButton) {
             if (g_eyedropperIcon) {
                 const int iconSize = 16;
                 const int x = (item->rcItem.left + item->rcItem.right - iconSize) / 2 + (pressed ? 1 : 0);
@@ -975,6 +1332,10 @@ HBRUSH g_borderBrush = nullptr;
 LRESULT CALLBACK LightBorderSubclassProc(HWND window, UINT message,
     WPARAM wParam, LPARAM lParam, UINT_PTR subclassId, DWORD_PTR) {
     const LRESULT result = DefSubclassProc(window, message, wParam, lParam);
+    if (message == WM_PAINT && window == g_editor && g_gdiplusToken &&
+        !g_drawingOutlinePreview) {
+        DrawOutlinePreview(window);
+    }
     if ((message == WM_NCPAINT || message == WM_PAINT) && g_borderBrush) {
         // Draw over themed control borders, which may be painted in the client area.
         HDC dc = message == WM_NCPAINT ? GetWindowDC(window) : GetDC(window);
@@ -1005,6 +1366,11 @@ void RegisterToolbar(HOST_APP_TABLE* host) {
         g_richEditModule = LoadLibraryW(L"Msftedit.dll");
         if (!g_richEditModule) {
             return;
+        }
+
+        if (!g_gdiplusToken) {
+            Gdiplus::GdiplusStartupInput startupInput;
+            Gdiplus::GdiplusStartup(&g_gdiplusToken, &startupInput, nullptr);
         }
 
         g_toolbarWindow = CreateDialogParamW(g_module,

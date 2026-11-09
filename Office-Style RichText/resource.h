@@ -14,6 +14,8 @@
 #define IDC_RICH_BACKGROUND             1011
 #define IDC_RICH_BACKGROUND_PICKER      1012
 #define IDC_RICH_EDITOR                 1013
+#define IDC_RICH_OUTLINE_COLOR          1014
+#define IDC_RICH_OUTLINE_PICKER         1015
 #define IDC_RICH_FONT_LABEL             1020
 #define IDC_RICH_SIZE_LABEL             1021
 #define IDC_RICH_STATUS                 1022
