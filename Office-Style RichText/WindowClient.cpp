@@ -1462,7 +1462,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
 
 COMMON_PLUGIN_TABLE common_plugin_table = {
     L"Office-Style RichText",
-    L"Office-Style RichText version 1.0.0"
+    L"Office-Style RichText version 1.1.0"
 };
 
 EXTERN_C __declspec(dllexport) DWORD RequiredVersion() {
