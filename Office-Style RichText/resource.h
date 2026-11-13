@@ -19,3 +19,4 @@
 #define IDC_RICH_FONT_LABEL             1020
 #define IDC_RICH_SIZE_LABEL             1021
 #define IDC_RICH_STATUS                 1022
+#define IDC_RICH_OUTLINE_PREVIEW        1017

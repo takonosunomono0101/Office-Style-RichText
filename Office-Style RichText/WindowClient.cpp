@@ -37,6 +37,7 @@ namespace {
     constexpr int kBackgroundEyedropperButton = 1012;
     constexpr int kOutlineColorButton = 1014;
     constexpr int kOutlineEyedropperButton = 1015;
+    constexpr int kOutlinePreviewButton = 1017;
     constexpr UINT kPopulateFontsMessage = WM_APP + 42;
 constexpr COLORREF kButtonColor = RGB(55, 55, 55);
 constexpr COLORREF kButtonPressedColor = RGB(78, 78, 78);
@@ -87,6 +88,7 @@ HBRUSH g_borderBrush = nullptr;
     ColorPickTarget g_pickTarget = ColorPickTarget::Text;
     ULONG_PTR g_gdiplusToken = 0;
     bool g_drawingOutlinePreview = false;
+    bool g_outlinePreviewEnabled = true;
 
     void SetStatus(const wchar_t* message);
     std::wstring ReadEditorText();
@@ -107,7 +109,7 @@ HBRUSH g_borderBrush = nullptr;
     }
 
     void DrawOutlinePreview(HWND editor) {
-        if (editor != g_editor || g_outlineColors.empty() ||
+        if (!g_outlinePreviewEnabled || editor != g_editor || g_outlineColors.empty() ||
             g_drawingOutlinePreview) {
             return;
         }
@@ -1115,6 +1117,13 @@ HBRUSH g_borderBrush = nullptr;
                     return 0;
                 case kOutlineEyedropperButton:
                     BeginScreenColorPick(ColorPickTarget::Outline);
+                    return 0;
+                case kOutlinePreviewButton:
+                    g_outlinePreviewEnabled = !g_outlinePreviewEnabled;
+                    SetWindowTextW(GetDlgItem(window, kOutlinePreviewButton),
+                        g_outlinePreviewEnabled ? L"縁表示: ON" : L"縁表示: OFF");
+                    if (g_editor) InvalidateRect(g_editor, nullptr, TRUE);
+                    SetStatus(g_outlinePreviewEnabled ? L"輪郭プレビューを表示します。" : L"輪郭プレビューを非表示にしました。");
                     return 0;
                 case kBackgroundEyedropperButton:
                     BeginScreenColorPick(ColorPickTarget::Background);
