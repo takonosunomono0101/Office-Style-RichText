@@ -39,10 +39,10 @@ namespace {
     constexpr int kOutlineEyedropperButton = 1015;
     constexpr int kOutlinePreviewButton = 1017;
     constexpr UINT kPopulateFontsMessage = WM_APP + 42;
-constexpr COLORREF kButtonColor = RGB(55, 55, 55);
-constexpr COLORREF kButtonPressedColor = RGB(78, 78, 78);
-constexpr COLORREF kButtonTextColor = RGB(240, 240, 240);
-constexpr COLORREF kControlBorderColor = RGB(170, 170, 170);
+    constexpr COLORREF kButtonColor = RGB(55, 55, 55);
+    constexpr COLORREF kButtonPressedColor = RGB(78, 78, 78);
+    constexpr COLORREF kButtonTextColor = RGB(240, 240, 240);
+    constexpr COLORREF kControlBorderColor = RGB(170, 170, 170);
 
     enum class ColorPickTarget { Text, Outline, Background };
 
@@ -59,10 +59,10 @@ constexpr COLORREF kControlBorderColor = RGB(170, 170, 170);
     HMODULE g_module = nullptr;
     HMODULE g_richEditModule = nullptr;
     HICON g_eyedropperIcon = nullptr;
-HBRUSH g_panelBrush = nullptr;
-HBRUSH g_buttonBrush = nullptr;
-HBRUSH g_buttonPressedBrush = nullptr;
-HBRUSH g_borderBrush = nullptr;
+    HBRUSH g_panelBrush = nullptr;
+    HBRUSH g_buttonBrush = nullptr;
+    HBRUSH g_buttonPressedBrush = nullptr;
+    HBRUSH g_borderBrush = nullptr;
     EDIT_HANDLE* g_editHandle = nullptr;
     HWND g_toolbarWindow = nullptr;
     HWND g_editor = nullptr;
@@ -213,7 +213,7 @@ HBRUSH g_borderBrush = nullptr;
                 index, index + static_cast<LONG>(charLength), &textRange)) && textRange) {
                 hasBaseline = textRange->GetPoint(
                     tomStart | tomClientCoord | tomAllowOffClient |
-                        TA_BASELINE | TA_LEFT,
+                    TA_BASELINE | TA_LEFT,
                     &baselineX, &baselineY) == S_OK;
                 textRange->Release();
             }
@@ -250,7 +250,7 @@ HBRUSH g_borderBrush = nullptr;
             const UINT ascent = family.GetCellAscent(fontStyle);
             const Gdiplus::REAL baselineOffset = emHeight
                 ? fontSize * static_cast<Gdiplus::REAL>(ascent) /
-                    static_cast<Gdiplus::REAL>(emHeight)
+                static_cast<Gdiplus::REAL>(emHeight)
                 : fontSize;
             if (!hasBaseline) {
                 baselineY += static_cast<LONG>(baselineOffset);
@@ -1079,6 +1079,16 @@ HBRUSH g_borderBrush = nullptr;
     LRESULT CALLBACK ToolbarWindowProc(HWND window, UINT message,
         WPARAM wParam, LPARAM lParam) {
         switch (message) {
+        case WM_NOTIFY: {
+            const auto* notification = reinterpret_cast<const NMHDR*>(lParam);
+            if (notification && notification->hwndFrom == g_editor &&
+                notification->code == EN_SELCHANGE && !g_drawingOutlinePreview) {
+                InvalidateRect(g_editor, nullptr, FALSE);
+                UpdateWindow(g_editor);
+                return 0;
+            }
+            break;
+        }
         case WM_COMMAND:
             if (LOWORD(wParam) == IDC_RICH_EDITOR &&
                 HIWORD(wParam) == EN_CHANGE) {
@@ -1242,132 +1252,134 @@ HBRUSH g_borderBrush = nullptr;
     LRESULT CALLBACK LightBorderSubclassProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR subclassId, DWORD_PTR referenceData);
 
     INT_PTR CALLBACK ToolbarDialogProc(HWND window, UINT message,
-    WPARAM wParam, LPARAM lParam) {
-    if (message == WM_INITDIALOG) {
-        g_toolbarWindow = window;
-        g_panelBrush = CreateSolidBrush(RGB(38, 38, 38));
-        g_buttonBrush = CreateSolidBrush(kButtonColor);
-        g_buttonPressedBrush = CreateSolidBrush(kButtonPressedColor);
-        g_borderBrush = CreateSolidBrush(kControlBorderColor);
-        return TRUE;
-    }
+        WPARAM wParam, LPARAM lParam) {
+        if (message == WM_INITDIALOG) {
+            g_toolbarWindow = window;
+            g_panelBrush = CreateSolidBrush(RGB(38, 38, 38));
+            g_buttonBrush = CreateSolidBrush(kButtonColor);
+            g_buttonPressedBrush = CreateSolidBrush(kButtonPressedColor);
+            g_borderBrush = CreateSolidBrush(kControlBorderColor);
+            return TRUE;
+        }
 
-    if (message == kPopulateFontsMessage) {
-        PopulateFontCombo();
-        return TRUE;
-    }
+        if (message == kPopulateFontsMessage) {
+            PopulateFontCombo();
+            return TRUE;
+        }
 
-    if (message == WM_DRAWITEM) {
-        auto* item = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
-        if (!item || item->CtlType != ODT_BUTTON) return FALSE;
+        if (message == WM_DRAWITEM) {
+            auto* item = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+            if (!item || item->CtlType != ODT_BUTTON) return FALSE;
 
-        const bool pressed = (item->itemState & ODS_SELECTED) != 0;
-        HBRUSH brush = pressed ? g_buttonPressedBrush : g_buttonBrush;
-        FillRect(item->hDC, &item->rcItem, brush);
-        RECT frame = item->rcItem;
-        FrameRect(item->hDC, &frame, g_borderBrush);
+            const bool pressed = (item->itemState & ODS_SELECTED) != 0;
+            HBRUSH brush = pressed ? g_buttonPressedBrush : g_buttonBrush;
+            FillRect(item->hDC, &item->rcItem, brush);
+            RECT frame = item->rcItem;
+            FrameRect(item->hDC, &frame, g_borderBrush);
 
-        if (item->CtlID == kTextEyedropperButton ||
-            item->CtlID == kBackgroundEyedropperButton ||
-            item->CtlID == kOutlineEyedropperButton) {
-            if (g_eyedropperIcon) {
-                const int iconSize = 16;
-                const int x = (item->rcItem.left + item->rcItem.right - iconSize) / 2 + (pressed ? 1 : 0);
-                const int y = (item->rcItem.top + item->rcItem.bottom - iconSize) / 2 + (pressed ? 1 : 0);
-                DrawIconEx(item->hDC, x, y, g_eyedropperIcon, iconSize, iconSize, 0, nullptr, DI_NORMAL);
-            }
-        } else {
-            wchar_t caption[128] = {};
-            GetWindowTextW(item->hwndItem, caption, static_cast<int>(_countof(caption)));
-            RECT textRect = item->rcItem;
-            InflateRect(&textRect, -3, -1);
-            SetBkMode(item->hDC, TRANSPARENT);
-            SetTextColor(item->hDC, kButtonTextColor);
-            DrawTextW(item->hDC, caption, -1, &textRect,
-                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-        }
-        if (item->itemState & ODS_FOCUS) {
-            RECT focusRect = item->rcItem;
-            InflateRect(&focusRect, -4, -4);
-            DrawFocusRect(item->hDC, &focusRect);
-        }
-        return TRUE;
-    }
-    if (message == WM_CTLCOLORLISTBOX) {
-        HWND listBox = reinterpret_cast<HWND>(lParam);
-        if (listBox) SetWindowSubclass(listBox, LightBorderSubclassProc, 1, 0);
-    }
-    if (message == WM_CTLCOLORDLG || message == WM_CTLCOLORSTATIC ||
-        message == WM_CTLCOLOREDIT || message == WM_CTLCOLORLISTBOX) {
-        HDC dc = reinterpret_cast<HDC>(wParam);
-        SetTextColor(dc, RGB(240, 240, 240));
-        SetBkColor(dc, RGB(38, 38, 38));
-        return reinterpret_cast<INT_PTR>(g_panelBrush);
-    }
-
-    ToolbarWindowProc(window, message, wParam, lParam);
-    switch (message) {
-    case WM_COMMAND:
-    case WM_SIZE:
-    case WM_CAPTURECHANGED:
-        return TRUE;
-    case WM_DESTROY:
-        if (g_panelBrush) {
-            DeleteObject(g_panelBrush);
-            g_panelBrush = nullptr;
-        }
-        if (g_buttonBrush) {
-            DeleteObject(g_buttonBrush);
-            g_buttonBrush = nullptr;
-        }
-        if (g_buttonPressedBrush) {
-            DeleteObject(g_buttonPressedBrush);
-            g_buttonPressedBrush = nullptr;
-        }
-        if (g_borderBrush) {
-            DeleteObject(g_borderBrush);
-            g_borderBrush = nullptr;
-        }
-        return TRUE;
-    case WM_MOUSEMOVE:
-    case WM_LBUTTONUP:
-    case WM_KEYDOWN:
-    case WM_SETCURSOR:
-        return g_pickingColor ? TRUE : FALSE;
-    default:
-        return FALSE;
-    }
-}
-LRESULT CALLBACK LightBorderSubclassProc(HWND window, UINT message,
-    WPARAM wParam, LPARAM lParam, UINT_PTR subclassId, DWORD_PTR) {
-    const LRESULT result = DefSubclassProc(window, message, wParam, lParam);
-    if (message == WM_PAINT && window == g_editor && g_gdiplusToken &&
-        !g_drawingOutlinePreview) {
-        DrawOutlinePreview(window);
-    }
-    if ((message == WM_NCPAINT || message == WM_PAINT) && g_borderBrush) {
-        // Draw over themed control borders, which may be painted in the client area.
-        HDC dc = message == WM_NCPAINT ? GetWindowDC(window) : GetDC(window);
-        if (dc) {
-            RECT borderRect = {};
-            if (message == WM_NCPAINT) {
-                RECT windowRect = {};
-                if (GetWindowRect(window, &windowRect)) {
-                    borderRect = { 0, 0, windowRect.right - windowRect.left,
-                        windowRect.bottom - windowRect.top };
+            if (item->CtlID == kTextEyedropperButton ||
+                item->CtlID == kBackgroundEyedropperButton ||
+                item->CtlID == kOutlineEyedropperButton) {
+                if (g_eyedropperIcon) {
+                    const int iconSize = 16;
+                    const int x = (item->rcItem.left + item->rcItem.right - iconSize) / 2 + (pressed ? 1 : 0);
+                    const int y = (item->rcItem.top + item->rcItem.bottom - iconSize) / 2 + (pressed ? 1 : 0);
+                    DrawIconEx(item->hDC, x, y, g_eyedropperIcon, iconSize, iconSize, 0, nullptr, DI_NORMAL);
                 }
-            } else {
-                GetClientRect(window, &borderRect);
             }
-            FrameRect(dc, &borderRect, g_borderBrush);
-            ReleaseDC(window, dc);
+            else {
+                wchar_t caption[128] = {};
+                GetWindowTextW(item->hwndItem, caption, static_cast<int>(_countof(caption)));
+                RECT textRect = item->rcItem;
+                InflateRect(&textRect, -3, -1);
+                SetBkMode(item->hDC, TRANSPARENT);
+                SetTextColor(item->hDC, kButtonTextColor);
+                DrawTextW(item->hDC, caption, -1, &textRect,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            }
+            if (item->itemState & ODS_FOCUS) {
+                RECT focusRect = item->rcItem;
+                InflateRect(&focusRect, -4, -4);
+                DrawFocusRect(item->hDC, &focusRect);
+            }
+            return TRUE;
         }
-    }    if (message == WM_NCDESTROY) {
-        RemoveWindowSubclass(window, LightBorderSubclassProc, subclassId);
+        if (message == WM_CTLCOLORLISTBOX) {
+            HWND listBox = reinterpret_cast<HWND>(lParam);
+            if (listBox) SetWindowSubclass(listBox, LightBorderSubclassProc, 1, 0);
+        }
+        if (message == WM_CTLCOLORDLG || message == WM_CTLCOLORSTATIC ||
+            message == WM_CTLCOLOREDIT || message == WM_CTLCOLORLISTBOX) {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(dc, RGB(240, 240, 240));
+            SetBkColor(dc, RGB(38, 38, 38));
+            return reinterpret_cast<INT_PTR>(g_panelBrush);
+        }
+
+        ToolbarWindowProc(window, message, wParam, lParam);
+        switch (message) {
+        case WM_COMMAND:
+        case WM_SIZE:
+        case WM_CAPTURECHANGED:
+            return TRUE;
+        case WM_DESTROY:
+            if (g_panelBrush) {
+                DeleteObject(g_panelBrush);
+                g_panelBrush = nullptr;
+            }
+            if (g_buttonBrush) {
+                DeleteObject(g_buttonBrush);
+                g_buttonBrush = nullptr;
+            }
+            if (g_buttonPressedBrush) {
+                DeleteObject(g_buttonPressedBrush);
+                g_buttonPressedBrush = nullptr;
+            }
+            if (g_borderBrush) {
+                DeleteObject(g_borderBrush);
+                g_borderBrush = nullptr;
+            }
+            return TRUE;
+        case WM_MOUSEMOVE:
+        case WM_LBUTTONUP:
+        case WM_KEYDOWN:
+        case WM_SETCURSOR:
+            return g_pickingColor ? TRUE : FALSE;
+        default:
+            return FALSE;
+        }
     }
-    return result;
-}
-void RegisterToolbar(HOST_APP_TABLE* host) {
+    LRESULT CALLBACK LightBorderSubclassProc(HWND window, UINT message,
+        WPARAM wParam, LPARAM lParam, UINT_PTR subclassId, DWORD_PTR) {
+        const LRESULT result = DefSubclassProc(window, message, wParam, lParam);
+        if (message == WM_PAINT && window == g_editor && g_gdiplusToken &&
+            !g_drawingOutlinePreview) {
+            DrawOutlinePreview(window);
+        }
+        if ((message == WM_NCPAINT || message == WM_PAINT) && g_borderBrush) {
+            // Draw over themed control borders, which may be painted in the client area.
+            HDC dc = message == WM_NCPAINT ? GetWindowDC(window) : GetDC(window);
+            if (dc) {
+                RECT borderRect = {};
+                if (message == WM_NCPAINT) {
+                    RECT windowRect = {};
+                    if (GetWindowRect(window, &windowRect)) {
+                        borderRect = { 0, 0, windowRect.right - windowRect.left,
+                            windowRect.bottom - windowRect.top };
+                    }
+                }
+                else {
+                    GetClientRect(window, &borderRect);
+                }
+                FrameRect(dc, &borderRect, g_borderBrush);
+                ReleaseDC(window, dc);
+            }
+        }    if (message == WM_NCDESTROY) {
+            RemoveWindowSubclass(window, LightBorderSubclassProc, subclassId);
+        }
+        return result;
+    }
+    void RegisterToolbar(HOST_APP_TABLE* host) {
         if (!host || !host->register_window_client || !host->create_edit_handle) {
             return;
         }
@@ -1425,6 +1437,9 @@ void RegisterToolbar(HOST_APP_TABLE* host) {
         SetWindowTextW(g_sizeCombo, L"32");
         if (g_editor) {
             SendMessageW(g_editor, EM_EXLIMITTEXT, 0, 1024 * 1024);
+            const LRESULT eventMask = SendMessageW(g_editor, EM_GETEVENTMASK, 0, 0);
+            SendMessageW(g_editor, EM_SETEVENTMASK, 0,
+                eventMask | ENM_SELCHANGE);
             SendMessageW(g_editor, EM_SETBKGNDCOLOR, 0, g_editorBackground);
             CHARFORMAT2W base = {};
             base.cbSize = sizeof(base);
